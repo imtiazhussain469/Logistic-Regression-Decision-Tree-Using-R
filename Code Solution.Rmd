@@ -1,0 +1,204 @@
+---
+title: "Fitness Class Exam"
+author: "Damian Cortes"
+date: "2023-03-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+```
+
+
+
+## Part 1):
+
+### Part a, b, c):
+
+First of all the dataset is read and the garbage values are checked in the dataframe. We found out that the days_before column has some values written as 8 days and some values written as just a number. Hence, str_replace_all function is used to clean this column. Same goes for day_of_week. There were some values written completely instead of 3 alphabets. They are re-coded. For missing observations in numerical columns, the missing observations are replaced with mean value and for categorical columns, missing observations are replaced with "unknown" value. After cleaning, all the data matched with the data description. The code being used throughout the process is attached below:
+
+
+```{r}
+fitness_data <- read.csv("https://s3.amazonaws.com/talent-assets.datacamp.com/fitness_class_2212.csv")
+
+fitness_data$months_as_member[is.na(fitness_data$months_as_member)] <- mean(fitness_data$months_as_member, 
+                                                                            na.rm = TRUE)
+
+fitness_data$weight[is.na(fitness_data$weight)] <- mean(fitness_data$weight, 
+                                                        na.rm = TRUE)
+
+fitness_data$days_before <- str_remove_all(fitness_data$days_before, "days")
+
+fitness_data$day_of_week[is.na(fitness_data$day_of_week)] <- "unknown"
+
+fitness_data$day_of_week <- str_replace_all(fitness_data$day_of_week, 
+                                            "Wednesday", 
+                                            "Wed")
+fitness_data$day_of_week <- str_replace_all(fitness_data$day_of_week, 
+                                            "Monday", 
+                                            "Mon")
+
+fitness_data$time[is.na(fitness_data$time)] <- "unknown"
+
+fitness_data$category[fitness_data$category == "-"] <- NA
+
+fitness_data$category[is.na(fitness_data$category)] <- "unknown"
+
+fitness_data$attended <- factor(fitness_data$attended)
+
+fitness_data$day_of_week <- factor(fitness_data$day_of_week, 
+                                   levels = unique(fitness_data$day_of_week))
+
+fitness_data$time <- factor(fitness_data$time, 
+                            levels = unique(fitness_data$time))
+
+```
+
+
+The final dataset after performing necessary preparation steps is attached below:
+
+```{r}
+head(fitness_data)
+```
+
+
+## Part 2):
+
+### Part a & b):
+
+HIIT has by far the most members attending its sessions. With the rest of the data we can see that it's not balanced either. HIIT is around a hundred observations higher than cycling which is also much higher than strength & yoga sessions with Aqua sessions having the least number of observations.
+
+
+```{r}
+attended_counts <- fitness_data %>%
+  group_by(category) %>%
+  summarize(count = sum(attended == "1"))
+
+ggplot(attended_counts, aes(x = category, y = count, fill = category)) +
+  geom_bar(stat = "identity") +
+  xlab("Category") +
+  ylab("Number of Attendees") +
+  ggtitle("Number of Bookings Attended by Category")
+```
+
+
+## Part 3):
+
+Below is a histogram which shows the distribution of 'Months as member'. It shows that a majority of members have around a dozen or so months as a member but very few have more than around 40 and very few have less than 10 or so.
+
+```{r}
+ggplot(fitness_data, aes(x=months_as_member)) + 
+  geom_histogram(binwidth = 1, fill="cornflowerblue", color="black") +
+  labs(title = "Distribution of Months as Member",
+       x = "Months as Member",
+       y = "Amount of Members")
+```
+
+
+## Part 4):
+
+From the boxplot attached below, we can see that the spread of those who attended is much higher than the spread of those who didn't attend. Similarly, we can see that the average months as a member are higher when the person is present and lower otherwise. Hence, we can say that people with higher months as members tends to be more present as compared to thse having lower months as members.
+
+```{r}
+ggplot(fitness_data, 
+       aes(x = attended, 
+           y = months_as_member, 
+           fill = attended)) +
+  geom_boxplot() +
+  labs(x = "Attendance", y = "Months as Member") +
+  theme_classic()
+```
+
+## Part 5):
+
+As our target variable in this case is binary where the members are either present in the class or not. It can take only two values 0 and 1. Either the class is attended or not. Hence it is a binary classification problem.
+
+## Part 6):
+
+First of all before building the baseline model, the categorical columns in the dataset are encoded, the booking ID column is useless and doesn't provide any useful information. Hence, that is removed from the dataset too. 
+
+```{r}
+fitness_data <- fitness_data[,c(2:8)]
+fitness_data$day_of_week <- as.numeric(factor(fitness_data$day_of_week))
+fitness_data$time <- as.numeric(factor(fitness_data$time))
+fitness_data$category <- as.numeric(factor(fitness_data$category))
+fitness_data$days_before <- as.numeric(fitness_data$days_before)
+head(fitness_data)
+```
+
+
+Next, the dataset is divided into training and testing sets. 75% of the data is used for training the model while the 25% of the data is set aside to test the performance of the model. The training set has 1125 observations while the testing set has 375 observations.
+
+```{r}
+set.seed(123)
+smp_size <- floor(0.75 * nrow(fitness_data))
+train_ind <- sample(seq_len(nrow(fitness_data)), 
+                    size = smp_size)
+
+train <- fitness_data[train_ind, ]
+test <- fitness_data[-train_ind, ]
+dim(train)
+dim(test)
+```
+
+The first baseline model that is built in this case is a logistic regression model with all available features as predictors and the summary of the model is attached below. It can be seen from the summary of the model that the predictors months as members and wieght are statistically significant and has an impact on the target variable.
+
+
+```{r}
+logreg <- glm(attended ~., 
+              data = train, 
+              family="binomial")
+summary(logreg)
+```
+
+## Part 7):
+
+Next, a comparison model called decision tree classifier is fitted to the dataset and the summary of the model is attached below. We can see that the top variables used in building the model are months as member, weight, days before and day of week. The variable with highest importance is months as member in this case. The lowest relative error is obtained for 7 splits.
+
+
+```{r}
+clf <- rpart(attended ~ ., 
+             data = train, 
+             method = "class")
+summary(clf)
+```
+
+
+## Part 8):
+
+As our problem is a binary classification problem which comes under the umbrella of supervised machine learning, hence the logistic regression and decision tree classifiers are the two best performing machine learning algorithms which are used.
+
+## Part 9):
+
+The performance evaluation metrics obtained for the logistic regression model on the unseen test dataset are attached below. We can see that the accuracy of the model is 79.73% with 76 miss-classified observations. The confidence interval of the model states that we are 95% confident that the accuracy of model lies between 75.3% and 83.69% respectively. The kappa statistics is 40.96%. The higher the kappa statistics, the better is the model performance.
+
+```{r}
+pred_logreg <- predict(logreg, test, type = "response")
+pred_logreg <- ifelse(pred_logreg > 0.5, 1, 0)
+confusionMatrix(table(pred_logreg, test$attended))
+```
+
+The performance evaluation metrics obtained for the decision tree model on the unseen test dataset are attached below. We can see that the accuracy of the model is 77.07% with 86 miss-classified observations. The confidence interval of the model states that we are 95% confident that the accuracy of model lies between 72.47% and 81.23% respectively. The kappa statistics is 41.74%. The higher the kappa statistics, the better is the model performance.
+
+```{r}
+pred_dt <- predict(clf, test, type = "class")
+confusionMatrix(table(pred_dt, test$attended))
+```
+
+## Part 10):
+
+Based on the accuracy, confidence interval and number of miss-classified observations, we observed that the values obtained for logistic regression were better compared to decision tree model. Hence, the better performing model in this case is the logistic regression model.
+
